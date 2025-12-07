@@ -2,6 +2,10 @@
 
 set -e
 
+# Source common functions (including GitButler support)
+SCRIPT_DIR="$(CDPATH="" cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
 JSON_MODE=false
 SHORT_NAME=""
 BRANCH_NUMBER=""
@@ -100,18 +104,30 @@ get_highest_from_specs() {
     echo "$highest"
 }
 
-# Function to get highest number from git branches
+# Function to get highest number from git/GitButler branches
 get_highest_from_branches() {
     local highest=0
-    
-    # Get all branches (local and remote)
-    branches=$(git branch -a 2>/dev/null || echo "")
-    
+    local branches=""
+
+    # Get branches from GitButler if in workspace
+    if is_gitbutler_workspace; then
+        branches=$(but branch list 2>/dev/null || echo "")
+    fi
+
+    # Also get standard git branches (local and remote)
+    local git_branches=$(git branch -a 2>/dev/null || echo "")
+    if [ -n "$git_branches" ]; then
+        branches="$branches"$'\n'"$git_branches"
+    fi
+
     if [ -n "$branches" ]; then
         while IFS= read -r branch; do
+            # Skip empty lines
+            [ -z "$branch" ] && continue
+
             # Clean branch name: remove leading markers and remote prefixes
             clean_branch=$(echo "$branch" | sed 's/^[* ]*//; s|^remotes/[^/]*/||')
-            
+
             # Extract feature number if branch matches pattern ###-*
             if echo "$clean_branch" | grep -q '^[0-9]\{3\}-'; then
                 number=$(echo "$clean_branch" | grep -o '^[0-9]\{3\}' || echo "0")
@@ -122,7 +138,7 @@ get_highest_from_branches() {
             fi
         done <<< "$branches"
     fi
-    
+
     echo "$highest"
 }
 
@@ -131,7 +147,10 @@ check_existing_branches() {
     local specs_dir="$1"
 
     # Fetch all remotes to get latest branch info (suppress errors if no remotes)
-    git fetch --all --prune 2>/dev/null || true
+    # Skip fetch for GitButler workspaces as they handle sync differently
+    if ! is_gitbutler_workspace; then
+        git fetch --all --prune 2>/dev/null || true
+    fi
 
     # Get highest number from ALL branches (not just matching short name)
     local highest_branch=$(get_highest_from_branches)
@@ -158,7 +177,7 @@ clean_branch_name() {
 # Resolve repository root. Prefer git information when available, but fall back
 # to searching for repository markers so the workflow still functions in repositories that
 # were initialised with --no-git.
-SCRIPT_DIR="$(CDPATH="" cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Note: SCRIPT_DIR is already set at the top when sourcing common.sh
 
 if git rev-parse --show-toplevel >/dev/null 2>&1; then
     REPO_ROOT=$(git rev-parse --show-toplevel)
@@ -272,7 +291,7 @@ if [ ${#BRANCH_NAME} -gt $MAX_BRANCH_LENGTH ]; then
 fi
 
 if [ "$HAS_GIT" = true ]; then
-    git checkout -b "$BRANCH_NAME"
+    vcs_branch_new "$BRANCH_NAME"
 else
     >&2 echo "[specify] Warning: Git repository not detected; skipped branch creation for $BRANCH_NAME"
 fi

@@ -1,6 +1,30 @@
 #!/usr/bin/env bash
 # Common functions and variables for all scripts
 
+#==============================================================================
+# GitButler Detection and VCS Wrapper Functions
+#==============================================================================
+
+# Check if we're in a GitButler workspace (branch starts with gitbutler/)
+is_gitbutler_workspace() {
+    local current=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    [[ "$current" == gitbutler/* ]]
+}
+
+# VCS wrapper for creating a new branch
+vcs_branch_new() {
+    local branch_name="$1"
+    if is_gitbutler_workspace; then
+        but branch new "$branch_name"
+    else
+        git checkout -b "$branch_name"
+    fi
+}
+
+#==============================================================================
+# Repository and Branch Functions
+#==============================================================================
+
 # Get repository root, with fallback for non-git repositories
 get_repo_root() {
     if git rev-parse --show-toplevel >/dev/null 2>&1; then
